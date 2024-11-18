@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "FastRealtimeTerrainPlugin",
+	"Description": "Terrain generation plugin using Realtime Mesh Component and Fast Noise Generator",
+	"Category": "Other",
+	"CreatedBy": "Christian Sparks",
+	"CreatedByURL": "twitter.com/hippowombat",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "FastRealtimeTerrainPlugin",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
