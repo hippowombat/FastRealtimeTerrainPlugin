@@ -44,6 +44,13 @@ void AFastRealtimeMarchingCubePlanet::Tick(float DeltaSeconds)
 
 	while (PendingTerrainChunks.Num() != 0 && BuildTimeExceeded == false)
 	{
+
+		if (DebugOnlyDrawOneChunk)
+		{
+			GenerateTerrainChunk(PendingTerrainChunks[SingleChunk]);
+			PendingTerrainChunks.Empty();
+			return;
+		}
 		// Generate the first chunk in the stack
 		GenerateTerrainChunk(PendingTerrainChunks[0]);
 
@@ -313,7 +320,7 @@ void AFastRealtimeMarchingCubePlanet::GenerateMesh()
 	RTM->CreateSectionGroup(GroupKey, StreamSet);
 	
 	// Update the configuration of the polygroup section
-	RTM->UpdateSectionConfig(PolyGroup0SectionKey, FRealtimeMeshSectionConfig(0), true);
+	RTM->UpdateSectionConfig(PolyGroup0SectionKey, FRealtimeMeshSectionConfig(0), DoCollision);
 
 	const int32 MeshUpdateTime = (FDateTime::Now() - MeshUpdateStartTime).GetTotalMilliseconds();
 	//UE_LOG(LogTemp, Log, TEXT("Mesh Update took %i ms"), MeshUpdateTime);
@@ -326,6 +333,8 @@ void AFastRealtimeMarchingCubePlanet::GenerateMeshDeferred()
 	ClearGeneratedMesh();
 	InitializeTriangulationTableData();
 	InitializeScalarField();
+
+	const int32 ComponentCount = ComponentBreakupScale * ComponentBreakupScale * ComponentBreakupScale;
 	
 	// Loop through the volume component subdivisions, adding new components at each subdivision center
 	const float StepSize = PlanetSize / ComponentBreakupScale;
@@ -349,7 +358,7 @@ void AFastRealtimeMarchingCubePlanet::GenerateMeshDeferred()
 					false,
 					5.0f,
 					0,
-					1.0f
+					25.0f
 					);
 				}
 			}
@@ -360,7 +369,7 @@ void AFastRealtimeMarchingCubePlanet::GenerateMeshDeferred()
 void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCenter)
 {
 
-	// Initialize a new RealtimeMesh for each chunk
+	// // Initialize a new RealtimeMesh for each chunk
 	URealtimeMeshComponent* NewMeshComp = NewObject<URealtimeMeshComponent>(this, URealtimeMeshComponent::StaticClass());
 	NewMeshComp->RegisterComponent();
 	NewMeshComp->SetCollisionProfileName("BlockAll");
@@ -369,6 +378,12 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 
 	// Initialize realtime mesh simple
 	URealtimeMeshSimple* NRTM = NewMeshComp->InitializeRealtimeMesh<URealtimeMeshSimple>();
+	FRealtimeMeshCollisionConfiguration CollisionConfig;
+	CollisionConfig.bDeformableMesh = false;
+	CollisionConfig.bUseComplexAsSimpleCollision = true;
+	CollisionConfig.bUseAsyncCook = true;
+	CollisionConfig.bMergeAllMeshes = false;
+	NRTM->SetCollisionConfig(CollisionConfig);
 
 	//const FVector3f InitialOffsetPosition = FVector3f(PlanetSize * -0.5f);
 	const FVector3f InitialOffsetPosition = FVector3f(TileCenter - FVector((PlanetSize / ComponentBreakupScale) * 0.5f));
@@ -508,8 +523,8 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 		StreamSet.AddStream(FRealtimeMeshStreams::Color, GetRealtimeMeshBufferLayout<FColor>()));
 	
 	// Set up a stream for tris
-	TRealtimeMeshStreamBuilder<TIndex3<uint32>, TIndex3<uint32>> TrianglesBuilder(
-		StreamSet.AddStream(FRealtimeMeshStreams::Triangles, GetRealtimeMeshBufferLayout<TIndex3<uint32>>()));
+	TRealtimeMeshStreamBuilder<TIndex3<uint32>, TIndex3<uint16>> TrianglesBuilder(
+		StreamSet.AddStream(FRealtimeMeshStreams::Triangles, GetRealtimeMeshBufferLayout<TIndex3<uint16>>()));
 	
 	// Set up a stream for polygroups
 	TRealtimeMeshStreamBuilder<uint32, uint16> PolygroupsBuilder(
@@ -531,12 +546,7 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 		const int32 TriTableIndex = BinaryFromVertices(CD.VertexValues);
 		if (TriTableIndex <= 0 || TriTableIndex >= 255)
 		{
-			//UE_LOG(LogTemp, Log, TEXT("Could not find TriTableIndex %i"), TriTableIndex);
 			continue;
-		}
-		else
-		{
-			//UE_LOG(LogTemp, Log, TEXT("Found TriTableIndex %i"), TriTableIndex);
 		}
 	
 		// Grab triangulation data from DT
@@ -607,6 +617,8 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 	const int32 TableDataLookupTime = (FDateTime::Now() - TableDataLookupStartTime).GetTotalMilliseconds();
 	UE_LOG(LogTemp, Log, TEXT("Table Data lookup took %i ms for %i CD instances"), TableDataLookupTime, CubeData.CubeDatum.Num());
 
+	TotalTriCount += MaxTri;
+
 	// Don't update mesh section if no geo to update with
 	if (MaxTri == 0)
 	{
@@ -621,20 +633,22 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 	NRTM->SetupMaterialSlot(0, "PrimaryMaterial");
 	
 	// Setup the group key
-	const FRealtimeMeshSectionGroupKey GroupKey = FRealtimeMeshSectionGroupKey::Create(0, FName("TestTriangle"));
+	const FRealtimeMeshSectionGroupKey GroupKey = FRealtimeMeshSectionGroupKey::Create(0, FName(TEXT("RTM%i"), 0));
 	
 	// Setup the section key
-	const FRealtimeMeshSectionKey PolyGroup0SectionKey = FRealtimeMeshSectionKey::CreateForPolyGroup(GroupKey, 0);
-	SectionKeys.Add(PolyGroup0SectionKey);
+	const FRealtimeMeshSectionKey PolyGroupSectionKey = FRealtimeMeshSectionKey::CreateForPolyGroup(GroupKey, 0);
+	SectionKeys.Add(PolyGroupSectionKey);
 	
 	// Now we create the section group
 	NRTM->CreateSectionGroup(GroupKey, StreamSet);
 	
 	// Update the configuration of the polygroup section
-	NRTM->UpdateSectionConfig(PolyGroup0SectionKey, FRealtimeMeshSectionConfig(0), true);
+	NRTM->UpdateSectionConfig(PolyGroupSectionKey, FRealtimeMeshSectionConfig(0), DoCollision);
 	
 	const int32 MeshUpdateTime = (FDateTime::Now() - MeshUpdateStartTime).GetTotalMilliseconds();
 	//UE_LOG(LogTemp, Log, TEXT("Mesh Update took %i ms"), MeshUpdateTime);
+
+	CubeData.CubeDatum.Empty();
 
 	Super::OnGenerateMesh_Implementation();
 }
@@ -658,6 +672,7 @@ void AFastRealtimeMarchingCubePlanet::ClearGeneratedMesh()
 		}
 	}
 	GeneratedMeshComps.Empty();
+	TotalTriCount = 0;
 }
 
 int32 AFastRealtimeMarchingCubePlanet::BinaryFromVertices(TArray<float>& Vertices)

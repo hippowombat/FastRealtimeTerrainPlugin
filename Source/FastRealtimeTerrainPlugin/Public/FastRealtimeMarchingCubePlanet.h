@@ -109,6 +109,15 @@ public:
 	bool BuildOnConstruct = false;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain")
+	bool DoCollision = false;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain")
+	bool DebugOnlyDrawOneChunk = false;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain")
+	int32 SingleChunk = 0;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain")
 	bool DrawDebugCubeEdges = false;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain")
@@ -131,6 +140,9 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain")
 	TArray<FFN_NoiseLayerType> NoiseLayers;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Terrain|Stats")
+	int64 TotalTriCount;
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Terrain")
 	void GenerateMesh();
