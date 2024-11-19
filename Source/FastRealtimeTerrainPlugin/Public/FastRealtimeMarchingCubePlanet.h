@@ -79,6 +79,8 @@ class FASTREALTIMETERRAINPLUGIN_API AFastRealtimeMarchingCubePlanet : public ARe
 
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
+	virtual void BeginPlay() override;
+
 public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Meta = (AllowPrivateAccess = "true"))
@@ -152,10 +154,13 @@ public:
 
 	// Calls function to build single terrain chunk
 	UFUNCTION(BlueprintCallable, Category = "Terrain")
-	void GenerateTerrainChunk(const FVector TileCenter = FVector(0.0f));
+	void GenerateTerrainChunk(const FVector TileCenter = FVector(0.0f), bool Update = false);
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Terrain")
 	void ClearGeneratedMesh();
+
+	UFUNCTION(BlueprintCallable, Category = "Terrain")
+	static void AffectPlanetGeo(AFastRealtimeMarchingCubePlanet* PlanetRef, FVector EffectLocation, float EffectRadius, bool AddTo);
 
 private:
 
@@ -172,7 +177,7 @@ private:
 	TArray<float> ScalarField;
 
 	UPROPERTY()
-	TArray<URealtimeMeshComponent*> GeneratedMeshComps;
+	TMap<URealtimeMeshComponent*, FVector> GeneratedMeshComps;
 	
 	TStaticArray<FTriangulationData, 254> TriangulationTableData;
 	
@@ -182,6 +187,8 @@ private:
 	TArray<FRealtimeMeshSectionKey> SectionKeys;
 	
 	static int32 BinaryFromVertices(TArray<float>& Vertices);
+
+	int32 ScalarIndexLookupFromLocalLocation(FVector LocalLocation) const;
 	
 	void GetTriangulationData(FTriangulationData& TriangulationData, const int32 Key);
 

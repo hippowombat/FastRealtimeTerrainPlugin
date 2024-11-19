@@ -3,7 +3,9 @@
 
 #include "FastRealtimeMarchingCubePlanet.h"
 #include "DrawDebugHelpers.h"
+#include "GuidStructCustomization.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 AFastRealtimeMarchingCubePlanet::AFastRealtimeMarchingCubePlanet()
 {
@@ -77,6 +79,12 @@ void AFastRealtimeMarchingCubePlanet::PostEditChangeProperty(FPropertyChangedEve
 		GenerateMesh();
 		//GenerateMeshDeferred();
 	}
+}
+
+void AFastRealtimeMarchingCubePlanet::BeginPlay()
+{
+	Super::BeginPlay();
+	InitializeTriangulationTableData();
 }
 
 void AFastRealtimeMarchingCubePlanet::GenerateMesh()
@@ -366,24 +374,67 @@ void AFastRealtimeMarchingCubePlanet::GenerateMeshDeferred()
 	}
 }
 
-void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCenter)
+void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCenter, bool Update)
 {
 
-	// // Initialize a new RealtimeMesh for each chunk
-	URealtimeMeshComponent* NewMeshComp = NewObject<URealtimeMeshComponent>(this, URealtimeMeshComponent::StaticClass());
-	NewMeshComp->RegisterComponent();
-	NewMeshComp->SetCollisionProfileName("BlockAll");
-	NewMeshComp->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
-	GeneratedMeshComps.Add(NewMeshComp);
+	// // If updating this chunk, find the existing comp & destroy it. Probably a better way to do this but idk
+	// if (Update)
+	// {
+	// 	TArray<URealtimeMeshComponent*> Keys;
+	// 	GeneratedMeshComps.GetKeys(Keys);
+	// 	for (URealtimeMeshComponent* GRTM : Keys)
+	// 	{
+	// 		if (GeneratedMeshComps[GRTM] == TileCenter)
+	// 		{
+	// 			GRTM->DestroyComponent();
+	// 			break;
+	// 		}
+	// 	}
+	// }
 
-	// Initialize realtime mesh simple
-	URealtimeMeshSimple* NRTM = NewMeshComp->InitializeRealtimeMesh<URealtimeMeshSimple>();
-	FRealtimeMeshCollisionConfiguration CollisionConfig;
-	CollisionConfig.bDeformableMesh = false;
-	CollisionConfig.bUseComplexAsSimpleCollision = true;
-	CollisionConfig.bUseAsyncCook = true;
-	CollisionConfig.bMergeAllMeshes = false;
-	NRTM->SetCollisionConfig(CollisionConfig);
+	URealtimeMeshSimple* NRTM = nullptr;
+	URealtimeMeshComponent* NewMeshComp = nullptr;
+
+	if (Update)
+	{
+		//UE_LOG(LogTemp, Log, TEXT("Update is True"));
+		TArray<URealtimeMeshComponent*> Keys;
+		GeneratedMeshComps.GetKeys(Keys);
+		for (URealtimeMeshComponent* RTM : Keys)
+		{
+			if (GeneratedMeshComps[RTM] == TileCenter)
+			{
+				//UE_LOG(LogTemp, Log, TEXT("Found RTM from tile center"));
+				NewMeshComp = RTM;
+				NRTM = NewMeshComp->InitializeRealtimeMesh<URealtimeMeshSimple>();
+				FRealtimeMeshCollisionConfiguration CollisionConfig;
+				CollisionConfig.bDeformableMesh = true;
+				CollisionConfig.bUseComplexAsSimpleCollision = true;
+				CollisionConfig.bUseAsyncCook = true;
+				CollisionConfig.bMergeAllMeshes = false;
+				NRTM->SetCollisionConfig(CollisionConfig);
+				break;
+			}
+		}
+	}
+	else
+	{
+		// // Initialize a new RealtimeMesh for each chunk
+		NewMeshComp = NewObject<URealtimeMeshComponent>(this, URealtimeMeshComponent::StaticClass());
+		NewMeshComp->RegisterComponent();
+		NewMeshComp->SetCollisionProfileName("BlockAll");
+		NewMeshComp->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
+		GeneratedMeshComps.Add(NewMeshComp, TileCenter);
+
+		// Initialize realtime mesh simple
+		NRTM = NewMeshComp->InitializeRealtimeMesh<URealtimeMeshSimple>();
+		FRealtimeMeshCollisionConfiguration CollisionConfig;
+		CollisionConfig.bDeformableMesh = true;
+		CollisionConfig.bUseComplexAsSimpleCollision = true;
+		CollisionConfig.bUseAsyncCook = true;
+		CollisionConfig.bMergeAllMeshes = false;
+		NRTM->SetCollisionConfig(CollisionConfig);
+	}
 
 	//const FVector3f InitialOffsetPosition = FVector3f(PlanetSize * -0.5f);
 	const FVector3f InitialOffsetPosition = FVector3f(TileCenter - FVector((PlanetSize / ComponentBreakupScale) * 0.5f));
@@ -455,14 +506,8 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 				{
 					const FVector3f Direction = VertexDirections[i];
 					const FVector3f VertPosition = CurrentCubePosition + (Direction * PerCubeHalfSize);
+					const int32 LookupIndex = ScalarIndexLookupFromLocalLocation(FVector(VertPosition));
 					const FVector NormalizedPosition = FVector(VertPosition) + (PlanetSize * 0.5f);
-					//const int32 IndexX = FMath::FloorToInt(NormalizedPosition.X / (PlanetSize * 0.5f / (ComponentBreakupScale + PerCompRes + 1)));
-					const int32 IndexX = FMath::FloorToInt(NormalizedPosition.X / (PlanetSize / (PerCompRes * ComponentBreakupScale)));
-					//const int32 IndexY = FMath::FloorToInt(NormalizedPosition.Y / (PlanetSize * 0.5f / (ComponentBreakupScale + PerCompRes + 1))) * (PerCompRes * ComponentBreakupScale);
-					const int32 IndexY = FMath::FloorToInt(NormalizedPosition.Y / (PlanetSize / (PerCompRes * ComponentBreakupScale))) * (PerCompRes * ComponentBreakupScale + 1);
-					//const int32 IndexZ = FMath::FloorToInt(NormalizedPosition.Z / (PlanetSize * 0.5f / (ComponentBreakupScale + PerCompRes + 1))) * ((PerCompRes * ComponentBreakupScale) * (PerCompRes * ComponentBreakupScale));
-					const int32 IndexZ = FMath::FloorToInt(NormalizedPosition.Z / (PlanetSize / (PerCompRes * ComponentBreakupScale))) * (PerCompRes * ComponentBreakupScale + 1) * (PerCompRes * ComponentBreakupScale + 1);
-					const int32 LookupIndex = IndexX + IndexY + IndexZ;
 					//UE_LOG(LogTemp, Log, TEXT("NormalizedPosition = %s | Index X = %i | Index Y = %i | Index Z = %i | LookupIndex = %i"), *NormalizedPosition.ToString(), IndexX, IndexY, IndexZ, LookupIndex);
 
 					FColor DebugBoxColor = FColor::Orange;
@@ -476,19 +521,19 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 					{
 						//UE_LOG(LogTemp, Log, TEXT("Could not find Scalar Value from key %i at position %s normalized position %s"), LookupIndex, *FVector(VertPosition).ToString(), *FVector(NormalizedPosition).ToString());
 					}
-					if (DrawDebugCubeVerts)
-					{
-						DrawDebugBox(
-							GetWorld(),
-							UKismetMathLibrary::TransformLocation(GetActorTransform(), FVector(NormalizedPosition)),
-							FVector(10.0f),
-							DebugBoxColor,
-							false,
-							5.0f,
-							0,
-							2.0f
-							);
-					}
+					// if (DrawDebugCubeVerts)
+					// {
+					// 	DrawDebugBox(
+					// 		GetWorld(),
+					// 		UKismetMathLibrary::TransformLocation(GetActorTransform(), FVector(NormalizedPosition)),
+					// 		FVector(10.0f),
+					// 		DebugBoxColor,
+					// 		false,
+					// 		5.0f,
+					// 		0,
+					// 		2.0f
+					// 		);
+					// }
 				}
 	
 				// Add cube center & cube vert scalar values to CubeData
@@ -501,7 +546,7 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 	}
 
 	const int32 ScalarGatherTime = (FDateTime::Now() - ScalarGatherStartTime).GetTotalMilliseconds();
-	UE_LOG(LogTemp, Log, TEXT("Scalar Field Gather took %i ms"), ScalarGatherTime);
+	//UE_LOG(LogTemp, Log, TEXT("Scalar Field Gather took %i ms"), ScalarGatherTime);
 	
 	// Initialize StreamSet. If RealtimeMeshSimple = DynamicMeshComponent, then StreamSet = DynamicMesh object
 	FRealtimeMeshStreamSet StreamSet;
@@ -615,13 +660,14 @@ void AFastRealtimeMarchingCubePlanet::GenerateTerrainChunk(const FVector TileCen
 	}
 	
 	const int32 TableDataLookupTime = (FDateTime::Now() - TableDataLookupStartTime).GetTotalMilliseconds();
-	UE_LOG(LogTemp, Log, TEXT("Table Data lookup took %i ms for %i CD instances"), TableDataLookupTime, CubeData.CubeDatum.Num());
+	//UE_LOG(LogTemp, Log, TEXT("Table Data lookup took %i ms for %i CD instances"), TableDataLookupTime, CubeData.CubeDatum.Num());
 
 	TotalTriCount += MaxTri;
 
 	// Don't update mesh section if no geo to update with
 	if (MaxTri == 0)
 	{
+		//UE_LOG(LogTemp, Log, TEXT("MaxTri = 0, aborting update"));
 		return;
 	}
 	
@@ -663,7 +709,9 @@ void AFastRealtimeMarchingCubePlanet::ClearGeneratedMesh()
 	TriangulationTableDataInitialized = false;
 	PendingTerrainChunks.Empty();
 	ScalarField.Empty();
-	for (URealtimeMeshComponent* GRMC : GeneratedMeshComps)
+	TArray<URealtimeMeshComponent*> Keys;
+	GeneratedMeshComps.GetKeys(Keys);
+	for (URealtimeMeshComponent* GRMC : Keys)
 	{
 		if (GRMC)
 		{
@@ -673,6 +721,76 @@ void AFastRealtimeMarchingCubePlanet::ClearGeneratedMesh()
 	}
 	GeneratedMeshComps.Empty();
 	TotalTriCount = 0;
+}
+
+void AFastRealtimeMarchingCubePlanet::AffectPlanetGeo(AFastRealtimeMarchingCubePlanet* PlanetRef,
+	FVector EffectLocation, float EffectRadius, bool AddTo)
+{
+	if (!PlanetRef)
+	{
+		return;
+	}
+	if (PlanetRef->ScalarField.Num() == 0)
+	{
+		return;
+	}
+
+	//const TArray<TEnumAsByte<EObjectTypeQuery>> ObjectTypes {ObjectTypeQuery1, ObjectTypeQuery2};
+	//TArray<UPrimitiveComponent*> OutComponents;
+	//UKismetSystemLibrary::SphereOverlapComponents(PlanetRef, EffectLocation, EffectRadius * 2.0f, ObjectTypes, URealtimeMeshComponent::StaticClass(), {}, OutComponents);
+
+	const float SnapSize = PlanetRef->PlanetSize / (PlanetRef->ComponentBreakupScale * PlanetRef->PerCompRes);
+	const FVector SnappedPosition = UKismetMathLibrary::Vector_SnappedToGrid(UKismetMathLibrary::InverseTransformLocation(PlanetRef->GetActorTransform(), EffectLocation), SnapSize);
+	const int32 GridCount = FMath::RoundToInt32(UKismetMathLibrary::SafeDivide(EffectRadius * 2, SnapSize));
+
+	TArray<URealtimeMeshComponent*> Keys;
+	PlanetRef->GeneratedMeshComps.GetKeys(Keys);
+	TArray<URealtimeMeshComponent*> CompsToEdit;
+	for (URealtimeMeshComponent* Key : Keys)
+	{
+		if ((UKismetMathLibrary::Vector_Distance(PlanetRef->GeneratedMeshComps[Key], SnappedPosition) - PlanetRef->PlanetSize / PlanetRef->ComponentBreakupScale) < EffectRadius)
+		{
+			CompsToEdit.Add(Key);
+		}
+	}
+	
+	const FVector InitialOffsetPosition = SnappedPosition - ((GridCount * SnapSize) * 0.5f);
+	const float NewValue = AddTo ? 0.0f : 1.0f;
+
+	// Loop through local area of scalar points to set their values
+	for (int32 Z = 0; Z < GridCount; Z++)
+	{
+		for (int32 Y = 0; Y < GridCount; Y++)
+		{
+			for (int32 X = 0; X < GridCount; X++)
+			{
+				const FVector P = InitialOffsetPosition + FVector(SnapSize * X, SnapSize * Y, SnapSize * Z);
+				if (UKismetMathLibrary::Vector_Distance(SnappedPosition, P) >= EffectRadius)
+				{
+					continue;
+				}
+				const int32 LookupIndex = PlanetRef->ScalarIndexLookupFromLocalLocation(P);
+				if (PlanetRef->ScalarField.IsValidIndex(LookupIndex))
+				{
+					//UE_LOG(LogTemp, Log, TEXT("Found valid index %i"), LookupIndex);
+					PlanetRef->ScalarField[LookupIndex] = NewValue;
+				}
+				else
+				{
+					//UE_LOG(LogTemp, Log, TEXT("Found non-valid index %i"), LookupIndex);
+				}
+			}
+		}
+	}
+
+	// Tell relevant chunks to update
+	for (URealtimeMeshComponent* RMC : CompsToEdit)
+	{
+		if (PlanetRef->GeneratedMeshComps.Contains(RMC))
+		{
+			PlanetRef->GenerateTerrainChunk(PlanetRef->GeneratedMeshComps[RMC], true);
+		}
+	}
 }
 
 int32 AFastRealtimeMarchingCubePlanet::BinaryFromVertices(TArray<float>& Vertices)
@@ -687,6 +805,15 @@ int32 AFastRealtimeMarchingCubePlanet::BinaryFromVertices(TArray<float>& Vertice
 	}
 	
 	return T;
+}
+
+int32 AFastRealtimeMarchingCubePlanet::ScalarIndexLookupFromLocalLocation(FVector LocalLocation) const
+{
+	const FVector NormalizedPosition = FVector(LocalLocation) + (PlanetSize * 0.5f);
+	const int32 IndexX = FMath::FloorToInt(NormalizedPosition.X / (PlanetSize / (PerCompRes * ComponentBreakupScale)));
+	const int32 IndexY = FMath::FloorToInt(NormalizedPosition.Y / (PlanetSize / (PerCompRes * ComponentBreakupScale))) * (PerCompRes * ComponentBreakupScale + 1);
+	const int32 IndexZ = FMath::FloorToInt(NormalizedPosition.Z / (PlanetSize / (PerCompRes * ComponentBreakupScale))) * (PerCompRes * ComponentBreakupScale + 1) * (PerCompRes * ComponentBreakupScale + 1);
+	return IndexX + IndexY + IndexZ;
 }
 
 void AFastRealtimeMarchingCubePlanet::GetTriangulationData(FTriangulationData& TriangulationData, const int32 Key)
@@ -731,7 +858,7 @@ void AFastRealtimeMarchingCubePlanet::InitializeTriangulationTableData()
 
 	// Set TriangulationTableDataInitialized flag so we don't have to do this again unnecessarily
 	TriangulationTableDataInitialized = true;
-	UE_LOG(LogTemp, Log, TEXT("Initializing TriangulationTableData"));
+	//UE_LOG(LogTemp, Log, TEXT("Initializing TriangulationTableData"));
 }
 
 void AFastRealtimeMarchingCubePlanet::InitializeScalarField()
@@ -792,5 +919,5 @@ void AFastRealtimeMarchingCubePlanet::InitializeScalarField()
 			}
 		}
 	}
-	UE_LOG(LogTemp, Log, TEXT("ScalarField Initialized w/ %i entries"), ScalarField.Num());
+	//UE_LOG(LogTemp, Log, TEXT("ScalarField Initialized w/ %i entries"), ScalarField.Num());
 }
